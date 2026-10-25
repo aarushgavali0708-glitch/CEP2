@@ -1,0 +1,5 @@
+# TeamConnect
+Student platform to find projects by skill match and form teams.
+Stack: React + Vite + Tailwind + Framer Motion + Recharts (client/), Node + Express + Prisma + Socket.io (server/).
+Rules: do not rewrite files that already work. Keep responses short. Use design tokens (CSS variables / Tailwind theme) for all colours. Do not make huge rewrites. Complete one step, then stop and wait for my feedback.
+Status: Phases 1, 2, 3A and 3B are complete.

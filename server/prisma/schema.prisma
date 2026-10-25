@@ -1,0 +1,526 @@
+// TeamConnect Prisma Schema
+// SQLite for dev, PostgreSQL-ready
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// CORE ENTITIES
+// ─────────────────────────────────────────────
+
+model Institution {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  domain      String   @unique  // e.g. "dpu.edu.in"
+  description String?
+  location    String?
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+
+  users        User[]
+  projects     Project[]
+  challenges   Challenge[]
+  leaderboard  LeaderboardEntry[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  fullName      String
+  role          String   @default("student") // student | admin | faculty
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Student profile
+  studentProfile  StudentProfile?
+  // Projects owned
+  ownedProjects   Project[]       @relation("ProjectOwner")
+  // Team memberships
+  teamMemberships TeamMember[]
+  // Applications submitted
+  applications    Application[]
+  // Invitations received
+  invitationsReceived Invitation[] @relation("InvitationRecipient")
+  // Invitations sent
+  invitationsSent     Invitation[] @relation("InvitationSender")
+  // Messages sent
+  messagesSent    Message[]
+  // Tasks assigned
+  tasksAssigned   Task[]
+  // Tasks created in team workspaces
+  tasksCreated    Task[]          @relation("TaskCreator")
+  // Workspace announcements authored
+  announcementsCreated Announcement[] @relation("AnnouncementAuthor")
+  // Ideas posted
+  ideas           Idea[]
+  // Idea votes
+  ideaVotes       IdeaVote[]
+  // Idea comments
+  ideaComments    IdeaComment[]
+  // Recommendations requested
+  recommendationsRequested Recommendation[] @relation("RecommendationStudent")
+  // Peer reviews given
+  peerReviewsGiven    PeerReview[] @relation("ReviewerUser")
+  // Peer reviews received
+  peerReviewsReceived PeerReview[] @relation("RevieweeUser")
+  // Badges earned
+  userBadges      UserBadge[]
+  // Certificates
+  certificates    Certificate[]
+  // Notifications
+  notifications   Notification[]
+  // Reports filed
+  reportsFiled    Report[]       @relation("ReporterUser")
+  // Reports received
+  reportsReceived Report[]       @relation("ReportedUser")
+  // Audit logs
+  auditLogs       AuditLog[]
+  // Skill endorsements given
+  endorsementsGiven SkillEndorsement[] @relation("EndorserUser")
+  // Leaderboard
+  leaderboardEntry LeaderboardEntry?
+}
+
+model StudentProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  department      String?
+  year            Int?     // 1-5
+  bio             String?
+  avatarUrl       String?
+  githubUrl       String?
+  linkedinUrl     String?
+  portfolioUrl    String?
+  weeklyHours     Int?     @default(10)  // availability in hours/week
+  interests       String?  // JSON array of domain strings
+  onboardingDone  Boolean  @default(false)
+  profileStrength Int?     @default(0)   // 0-100
+  xp              Int?     @default(0)
+  level           Int?     @default(1)
+  collaborationRating Float? @default(0)
+  // Privacy settings
+  privacyProjects      String @default("public") // public | institution | private
+  privacySkills        String @default("public")
+  privacyReviews       String @default("public")
+  privacyRecommendations String @default("public")
+  privacyTimeline      String @default("institution")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userSkills      UserSkill[]
+}
+
+// ─────────────────────────────────────────────
+// SKILLS
+// ─────────────────────────────────────────────
+
+model Skill {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  category    String?  // e.g. "Frontend", "Backend", "Design", "ML"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  userSkills      UserSkill[]
+  roleSkills      RoleSkill[]
+  similarityA     SkillSimilarity[] @relation("SkillA")
+  similarityB     SkillSimilarity[] @relation("SkillB")
+}
+
+model SkillSimilarity {
+  id        String @id @default(uuid())
+  skillAId  String
+  skillBId  String
+  score     Float  // 0-1, how similar they are
+  skillA    Skill  @relation("SkillA", fields: [skillAId], references: [id])
+  skillB    Skill  @relation("SkillB", fields: [skillBId], references: [id])
+
+  @@unique([skillAId, skillBId])
+}
+
+model UserSkill {
+  id              String   @id @default(uuid())
+  profileId       String
+  skillId         String
+  level           String   @default("Beginner") // Beginner | Intermediate | Advanced
+  profile         StudentProfile @relation(fields: [profileId], references: [id])
+  skill           Skill    @relation(fields: [skillId], references: [id])
+  createdAt       DateTime @default(now())
+
+  endorsements    SkillEndorsement[]
+
+  @@unique([profileId, skillId])
+}
+
+model SkillEndorsement {
+  id          String   @id @default(uuid())
+  userSkillId String
+  endorserId  String
+  type        String   @default("peer") // peer | teacher | owner
+  userSkill   UserSkill @relation(fields: [userSkillId], references: [id])
+  endorser    User     @relation("EndorserUser", fields: [endorserId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────
+
+model Project {
+  id            String   @id @default(uuid())
+  title         String
+  description   String
+  goals         String?
+  domain        String   // e.g. "Web Dev", "ML/AI", "Mobile", "Design"
+  status        String   @default("pending") // pending | active | completed | rejected | archived
+  featured      Boolean  @default(false)
+  duration      String?  // e.g. "3 months"
+  timeline      String?  // JSON with start/end dates
+  ownerId       String
+  owner         User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  roles         ProjectRole[]
+  members       TeamMember[]
+  milestones    Milestone[]
+  messages      Message[]
+  tasks         Task[]
+  announcements Announcement[]
+  reports       Report[]       @relation("ReportedProject")
+}
+
+model ProjectRole {
+  id          String   @id @default(uuid())
+  projectId   String
+  title       String   // e.g. "Frontend Developer"
+  description String?
+  seats       Int      @default(1)
+  filledSeats Int      @default(0)
+  hoursPerWeek Int     @default(10)
+  importance  String   @default("must-have") // must-have | nice-to-have
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  roleSkills      RoleSkill[]
+  applications    Application[]
+  invitations     Invitation[]
+  teamMembers     TeamMember[]
+}
+
+model RoleSkill {
+  id             String   @id @default(uuid())
+  roleId         String
+  skillId        String
+  requiredLevel  String   @default("Beginner") // Beginner | Intermediate | Advanced
+  importance     String   @default("must-have") // must-have | nice-to-have
+  role           ProjectRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  skill          Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([roleId, skillId])
+}
+
+// ─────────────────────────────────────────────
+// APPLICATIONS & INVITATIONS
+// ─────────────────────────────────────────────
+
+model Application {
+  id          String   @id @default(uuid())
+  roleId      String
+  studentId   String
+  message     String?
+  status      String   @default("pending") // pending | accepted | rejected | withdrawn
+  matchScore  Float?
+  role        ProjectRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  student     User     @relation(fields: [studentId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([roleId, studentId])
+}
+
+model Invitation {
+  id          String   @id @default(uuid())
+  roleId      String
+  recipientId String
+  senderId    String
+  message     String?
+  status      String   @default("pending") // pending | accepted | rejected
+  role        ProjectRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  recipient   User     @relation("InvitationRecipient", fields: [recipientId], references: [id])
+  sender      User     @relation("InvitationSender", fields: [senderId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TeamMember {
+  id              String   @id @default(uuid())
+  projectId       String
+  userId          String
+  roleId          String?
+  contributionNote String?
+  joinedAt        DateTime @default(now())
+  leftAt          DateTime?
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id])
+  role            ProjectRole? @relation(fields: [roleId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+// ─────────────────────────────────────────────
+// WORKSPACE
+// ─────────────────────────────────────────────
+
+model Task {
+  id          String   @id @default(uuid())
+  projectId   String
+  createdById String?
+  assigneeId  String?
+  title       String
+  description String?
+  status      String   @default("todo") // todo | inprogress | done
+  priority    String   @default("medium") // low | medium | high
+  dueDate     DateTime?
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator     User?    @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  assignee    User?    @relation(fields: [assigneeId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Milestone {
+  id          String   @id @default(uuid())
+  projectId   String
+  title       String
+  description String?
+  dueDate     DateTime?
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  progress    Int      @default(0) // 0-100
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  projectId   String?
+  senderId    String
+  recipientId String?  // null = team message, set = DM
+  content     String
+  type        String   @default("team") // team | dm
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sender      User     @relation(fields: [senderId], references: [id])
+  createdAt   DateTime @default(now())
+  isDeleted   Boolean  @default(false)
+}
+
+model Announcement {
+  id          String   @id @default(uuid())
+  projectId   String
+  authorId    String?
+  title       String
+  content     String
+  isPinned    Boolean  @default(false)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author      User?    @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// IDEAS & CHALLENGES
+// ─────────────────────────────────────────────
+
+model Idea {
+  id            String   @id @default(uuid())
+  authorId      String
+  institutionId String?
+  title         String
+  problem       String
+  domain        String?
+  status        String   @default("open") // open | picked | archived
+  pickedByProject String? // project ID if picked up
+  createdAt     DateTime @default(now())
+  author        User     @relation(fields: [authorId], references: [id])
+
+  votes         IdeaVote[]
+  comments      IdeaComment[]
+}
+
+model IdeaVote {
+  id      String @id @default(uuid())
+  ideaId  String
+  userId  String
+  idea    Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([ideaId, userId])
+}
+
+model IdeaComment {
+  id        String   @id @default(uuid())
+  ideaId    String
+  authorId  String
+  content   String
+  idea      Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Challenge {
+  id            String   @id @default(uuid())
+  institutionId String
+  title         String
+  description   String
+  domain        String?
+  postedBy      String   // Admin user ID
+  deadline      DateTime?
+  status        String   @default("active") // active | closed
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  createdAt     DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// RECOMMENDATIONS & REVIEWS
+// ─────────────────────────────────────────────
+
+model Recommendation {
+  id                String   @id @default(uuid())
+  studentId         String
+  teacherEmail      String
+  teacherName       String?
+  teacherDesignation String?
+  teacherDepartment String?
+  token             String   @unique // secure link token
+  text              String?
+  ratingTechnical   Int?     // 1-5
+  ratingTeamwork    Int?
+  ratingReliability Int?
+  ratingCommunication Int?
+  endorsedSkills    String?  // JSON array of skill names
+  status            String   @default("pending") // pending | submitted | approved | rejected
+  student           User     @relation("RecommendationStudent", fields: [studentId], references: [id])
+  submittedAt       DateTime?
+  createdAt         DateTime @default(now())
+}
+
+model PeerReview {
+  id                  String   @id @default(uuid())
+  projectId           String
+  reviewerId          String
+  revieweeId          String
+  ratingReliability   Int?     // 1-5
+  ratingCommunication Int?
+  ratingSkill         Int?
+  comment             String?
+  reviewer            User     @relation("ReviewerUser", fields: [reviewerId], references: [id])
+  reviewee            User     @relation("RevieweeUser", fields: [revieweeId], references: [id])
+  createdAt           DateTime @default(now())
+
+  @@unique([projectId, reviewerId, revieweeId])
+}
+
+// ─────────────────────────────────────────────
+// GAMIFICATION
+// ─────────────────────────────────────────────
+
+model Badge {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  iconUrl     String?
+  xpValue     Int      @default(50)
+  createdAt   DateTime @default(now())
+
+  userBadges  UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+}
+
+model Certificate {
+  id             String   @id @default(uuid())
+  userId         String
+  projectId      String
+  verificationId String   @unique
+  qrCodeUrl      String?
+  pdfUrl         String?
+  signedBy       String?  // Admin/teacher name
+  issuedAt       DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id])
+}
+
+model LeaderboardEntry {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  institutionId String
+  xp            Int      @default(0)
+  rank          Int?
+  user          User     @relation(fields: [userId], references: [id])
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  updatedAt     DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS, REPORTS, AUDIT
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // application_received | application_accepted | application_rejected | invitation | recommendation | badge
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  reporterId  String
+  reportedUserId String?
+  reportedProjectId String?
+  reason      String
+  description String?
+  status      String   @default("open") // open | resolved | dismissed
+  reporter    User     @relation("ReporterUser", fields: [reporterId], references: [id])
+  reportedUser User?   @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  reportedProject Project? @relation("ReportedProject", fields: [reportedProjectId], references: [id])
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  adminId     String
+  action      String   // e.g. "approve_project", "reject_student", "delete_skill"
+  entityType  String   // "project" | "user" | "skill" | "recommendation"
+  entityId    String
+  details     String?  // JSON
+  admin       User     @relation(fields: [adminId], references: [id])
+  createdAt   DateTime @default(now())
+}
